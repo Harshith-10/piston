@@ -279,17 +279,22 @@ router.get('/runtimes', (req, res) => {
 
 router.get('/packages', async (req, res) => {
     logger.debug('Request to list packages');
-    let packages = await package.get_package_list();
+    try {
+        let packages = await package.get_package_list();
 
-    packages = packages.map(pkg => {
-        return {
-            language: pkg.language,
-            language_version: pkg.version.raw,
-            installed: pkg.installed,
-        };
-    });
+        packages = packages.map(pkg => {
+            return {
+                language: pkg.language,
+                language_version: pkg.version.raw,
+                installed: pkg.installed,
+            };
+        });
 
-    return res.status(200).send(packages);
+        return res.status(200).send(packages);
+    } catch (e) {
+        logger.error(e.message);
+        return res.status(500).send({ message: e.message });
+    }
 });
 
 router.post('/packages', async (req, res) => {

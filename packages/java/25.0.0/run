@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# Put instructions to run the runtime
 # Rename the input file to have the correct extension (required by Java)
 # Rename the input file to have the correct extension (required by Java)
 if [[ "$1" != *.java ]]; then
@@ -10,4 +9,7 @@ else
     filename="$1"
 fi
 shift
+
+# Compile (if needed) and run
+# For single-file source code, newer Java versions can run directly:
 java $filename "$@"

@@ -77,6 +77,8 @@ expressWs(app);
 
     const api_v2 = require('./api/v2');
     app.use('/api/v2', api_v2);
+    const api_v3 = require('./api/v3');
+    app.use('/api/v3', api_v3);
 
     const { version } = require('../package.json');
 

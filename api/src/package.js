@@ -15,7 +15,7 @@ const util = require('util');
 class Package {
     constructor({ language, version, download, checksum }) {
         this.language = language;
-        this.version = semver.parse(version);
+        this.version = semver.parse(version) || semver.coerce(version);
         this.checksum = checksum;
         this.download = download;
     }
@@ -202,7 +202,7 @@ class Package {
 
         const entries = repo_content.split('\n').filter(x => x.length > 0);
 
-        return entries.map(line => {
+        const packages = entries.map(line => {
             const [language, version, checksum, download] = line.split(',', 4);
 
             return new Package({
@@ -212,6 +212,19 @@ class Package {
                 download,
             });
         });
+
+        const unique_packages = [];
+        const seen = new Set();
+
+        for (const pkg of packages) {
+            const key = `${pkg.language}-${pkg.version.raw}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                unique_packages.push(pkg);
+            }
+        }
+
+        return unique_packages;
     }
 
     static async get_package(lang, version) {

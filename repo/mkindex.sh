@@ -21,3 +21,6 @@ do
     
     ((i=i+1))
 done
+
+echo "Appending official packages to index..."
+curl -sL https://github.com/engineer-man/piston/releases/download/pkgs/index >> index

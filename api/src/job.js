@@ -133,7 +133,8 @@ class Job {
         timeout,
         cpu_time,
         memory_limit,
-        event_bus = null
+        event_bus = null,
+        stdin = null
     ) {
         let stdout = '';
         let stderr = '';
@@ -184,7 +185,7 @@ class Job {
         );
 
         if (event_bus === null) {
-            proc.stdin.write(this.stdin);
+            proc.stdin.write(stdin || this.stdin);
             proc.stdin.end();
             proc.stdin.destroy();
         } else {
@@ -326,7 +327,7 @@ class Job {
         if (this.state !== job_states.PRIMED) {
             throw new Error(
                 'Job must be in primed state, current state: ' +
-                    this.state.toString()
+                this.state.toString()
             );
         }
 
@@ -343,22 +344,22 @@ class Job {
         const { emit_event_bus_result, emit_event_bus_stage } =
             event_bus === null
                 ? {
-                      emit_event_bus_result: () => {},
-                      emit_event_bus_stage: () => {},
-                  }
+                    emit_event_bus_result: () => { },
+                    emit_event_bus_stage: () => { },
+                }
                 : {
-                      emit_event_bus_result: (stage, result) => {
-                          const { error, code, signal } = result;
-                          event_bus.emit('exit', stage, {
-                              error,
-                              code,
-                              signal,
-                          });
-                      },
-                      emit_event_bus_stage: stage => {
-                          event_bus.emit('stage', stage);
-                      },
-                  };
+                    emit_event_bus_result: (stage, result) => {
+                        const { error, code, signal } = result;
+                        event_bus.emit('exit', stage, {
+                            error,
+                            code,
+                            signal,
+                        });
+                    },
+                    emit_event_bus_stage: stage => {
+                        event_bus.emit('stage', stage);
+                    },
+                };
 
         if (this.runtime.compiled) {
             this.logger.debug('Compiling');
@@ -405,6 +406,98 @@ class Job {
         return {
             compile,
             run,
+            language: this.runtime.language,
+            version: this.runtime.version.raw,
+        };
+    }
+
+    async execute_batch(box, testcases) {
+        if (this.state !== job_states.PRIMED) {
+            throw new Error(
+                'Job must be in primed state, current state: ' +
+                this.state.toString()
+            );
+        }
+
+        this.logger.info(`Executing batch job runtime=${this.runtime.toString()}`);
+
+        const code_files =
+            (this.runtime.language === 'file' && this.files) ||
+            this.files.filter(file => file.encoding == 'utf8');
+
+        this.logger.debug('Compiling');
+
+        let compile;
+        let compile_errored = false;
+
+        if (this.runtime.compiled) {
+            this.logger.debug('Compiling');
+            compile = await this.safe_call(
+                box,
+                'compile',
+                code_files.map(x => x.name),
+                this.timeouts.compile,
+                this.cpu_times.compile,
+                this.memory_limits.compile,
+                null
+            );
+            compile_errored = compile.code !== 0;
+            if (!compile_errored) {
+                const old_box_dir = box.dir;
+                box = await this.#create_isolate_box();
+                await fs.rename(
+                    path.join(old_box_dir, 'submission'),
+                    path.join(box.dir, 'submission')
+                );
+            }
+        }
+
+        let results = [];
+
+        if (!compile_errored) {
+            this.logger.debug('Running Batch Testcases');
+
+            for (const testcase of testcases) {
+                const run = await this.safe_call(
+                    box,
+                    'run',
+                    [code_files[0].name, ...this.args],
+                    this.timeouts.run,
+                    this.cpu_times.run,
+                    this.memory_limits.run,
+                    null,
+                    testcase.input
+                );
+
+                // Helper to check if output matches expected
+                const isMatch = (actual, expected) => {
+                    const normalize = (str) => str.replace(/\s+/g, '');
+                    if (Array.isArray(expected)) {
+                        return expected.some(exp =>
+                            actual.trim() === exp.trim() ||
+                            normalize(actual) === normalize(exp)
+                        );
+                    }
+                    return actual.trim() === expected.trim() || normalize(actual) === normalize(expected);
+                };
+
+                const passed = isMatch(run.stdout, testcase.expectedOutput);
+                results.push({
+                    id: testcase.id,
+                    input: testcase.input,
+                    expectedOutput: testcase.expectedOutput,
+                    actualOutput: run.stdout,
+                    passed: passed,
+                    run_details: run // keeping this if needed for debugging or detailed run stats per case
+                });
+            }
+        }
+
+        this.state = job_states.EXECUTED;
+
+        return {
+            compile,
+            testcases: results,
             language: this.runtime.language,
             version: this.runtime.version.raw,
         };
